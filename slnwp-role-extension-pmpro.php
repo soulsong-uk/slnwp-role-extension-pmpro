@@ -3,7 +3,7 @@
  * Plugin Name:       SLNWP Role Extension for Paid Memberships Pro
  * Plugin URI:        https://github.com/soulsong-uk/slnwp-role-extension-pmpro
  * Description:       Manages WordPress roles in sync with Paid Memberships Pro membership levels. Replaces the official PMPro Roles add-on which had critical bugs around role assignment, removal, and administrator role protection.
- * Version:           2.1.6
+ * Version:           2.1.7
  * Author:            James Harvey
  * Author URI:        https://soulsong.co.uk
  * License:           GPL-2.0+
@@ -524,21 +524,15 @@ function pmpro_rm_verify_sync_nonce( $nonce_ok ) {
 
 
 /**
- * Handle every Role Sync bulk-action request — a two-step "test run, then
- * apply" flow, 100 users (or 100 changed users, in the apply step) per
- * request so a large site can never blow the request time limit:
+ * Handle every Role Sync bulk-action request, in batches of 100 users per
+ * request so a large site can never blow the request time limit.
  *
- *   1. pmpro_rm_do_dryrun (POST, from the Bulk Role Sync form) starts a scan.
- *      Nothing is written. pmpro_rm_continue_scan (GET) continues it, sent by
- *      the scan progress screen's <meta refresh>, until every user has been
- *      scanned, then redirects to the review screen — the affected users and
- *      their exact role changes, kept in a transient for up to an hour.
- *   2. From review, pmpro_rm_do_apply (POST) starts actually writing those
- *      changes; pmpro_rm_continue_apply (GET) continues it the same way.
- *      pmpro_rm_do_cancel (POST) discards the transient instead.
+ * pmpro_rm_do_direct_sync (POST, the Run Sync Now button) starts a sync that
+ * writes as it goes; pmpro_rm_continue_direct (GET) continues it, sent by the
+ * progress screen's <meta refresh>, until every user has been processed.
  *
- * One pmpro_rm_sync nonce is created when a scan starts and carried through
- * scanning, review, and applying; every step re-verifies it.
+ * One pmpro_rm_sync nonce is created when a run starts and carried through
+ * every step of it; every step re-verifies it.
  */
 function pmpro_rm_handle_sync() {
 	// Verified once here for every branch below (each refuses to run unless it
