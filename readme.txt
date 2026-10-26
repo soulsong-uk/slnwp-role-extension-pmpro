@@ -4,7 +4,7 @@ Tags:               paid memberships pro, pmpro, membership, roles, user roles
 Requires at least:  6.5
 Tested up to:       7.1
 Requires PHP:       7.4
-Stable tag:         2.1.7
+Stable tag:         2.1.8
 License:            GPLv2 or later
 License URI:        https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -54,6 +54,8 @@ The following roles are never removed under any circumstances:
 * `subscriber`
 
 Note: protecting a role only stops this plugin from *removing* it — a non-member is still *assigned* the site's default role (usually `subscriber`) as normal. Protection just means that role, once held, can never be stripped again afterwards.
+
+For the same reason, a protected role can't be chosen as a membership level's role: members would keep it after their membership ended. If a level already uses one, the plugin shows a warning naming that level.
 
 You can add additional protected roles via filter:
 
@@ -135,10 +137,10 @@ Yes — the `customer` role is in the protected list by default so WooCommerce c
 
 == Changelog ==
 
-= 2.1.7 =
+= 2.1.8 =
 * First release on WordPress.org
 
 == Upgrade Notice ==
 
-= 2.1.7 =
+= 2.1.8 =
 First WordPress.org release.

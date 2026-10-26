@@ -3,7 +3,7 @@
  * Plugin Name:       SLNWP Role Extension for Paid Memberships Pro
  * Plugin URI:        https://github.com/soulsong-uk/slnwp-role-extension-pmpro
  * Description:       Manages WordPress roles in sync with Paid Memberships Pro membership levels. Replaces the official PMPro Roles add-on which had critical bugs around role assignment, removal, and administrator role protection.
- * Version:           2.1.7
+ * Version:           2.1.8
  * Author:            James Harvey
  * Author URI:        https://soulsong.co.uk
  * License:           GPL-2.0+
@@ -105,6 +105,7 @@ function pmpro_rm_init() {
 	if ( function_exists( 'pmpro_roles_after_change_membership_level' ) ) {
 		add_action( 'admin_notices', 'pmpro_rm_notice_conflict' );
 	}
+	add_action( 'admin_notices', 'pmpro_rm_notice_protected_level_roles' );
 
 
 	add_action( 'pmpro_membership_level_after_other_settings', 'pmpro_rm_add_role_slug_field' );
@@ -142,6 +143,52 @@ function pmpro_rm_notice_conflict() {
 	echo '<strong>' . esc_html__( 'SLNWP Role Extension for Paid Memberships Pro', 'slnwp-role-extension-pmpro' ) . '</strong>: ';
 	esc_html_e( 'The official PMPro Roles add-on is currently active. Please deactivate it to avoid conflicts with this plugin.', 'slnwp-role-extension-pmpro' );
 	echo '</p></div>';
+}
+
+/**
+ * Admin notice: a level uses a protected role as its WordPress Role or Interim
+ * Role. This plugin never removes protected roles, so members of that level
+ * keep the role after their membership is cancelled or expires. The level
+ * editor no longer offers protected roles, so this only flags levels saved
+ * before that, or a role a site has since added via pmpro_protected_roles.
+ */
+function pmpro_rm_notice_protected_level_roles() {
+	if ( ! current_user_can( 'manage_options' ) ) {
+		return;
+	}
+	$names = pmpro_rm_get_protected_role_level_names();
+	if ( empty( $names ) ) {
+		return;
+	}
+	echo '<div class="notice notice-warning"><p>';
+	echo '<strong>' . esc_html__( 'SLNWP Role Extension for Paid Memberships Pro', 'slnwp-role-extension-pmpro' ) . '</strong>: ';
+	printf(
+		/* translators: %s: comma-separated list of membership level names whose WordPress Role or Interim Role is a protected role. */
+		esc_html__( 'These membership levels use a protected role as their WordPress Role or Interim Role: %s. This plugin never removes protected roles, so members keep that role after their membership is cancelled or expires. Edit these levels and choose a different role.', 'slnwp-role-extension-pmpro' ),
+		esc_html( implode( ', ', $names ) )
+	);
+	echo '</p></div>';
+}
+
+/**
+ * Names of every membership level whose WordPress Role or Interim Role is a
+ * protected role.
+ *
+ * @return string[]
+ */
+function pmpro_rm_get_protected_role_level_names() {
+	$levels    = function_exists( 'pmpro_getAllLevels' ) ? pmpro_getAllLevels( true, true ) : array();
+	$levels    = is_array( $levels ) ? $levels : array();
+	$protected = pmpro_rm_get_protected_roles();
+	$names     = array();
+	foreach ( $levels as $level ) {
+		$main    = (string) get_option( 'pmpro_level_role_' . (int) $level->id, '' );
+		$interim = (string) get_option( 'pmpro_level_interim_role_' . (int) $level->id, '' );
+		if ( in_array( $main, $protected, true ) || in_array( $interim, $protected, true ) ) {
+			$names[] = $level->name;
+		}
+	}
+	return $names;
 }
 
 
@@ -752,7 +799,8 @@ function pmpro_rm_add_role_slug_field() {
 			<?php if ( 'pro' !== PMPRO_RM_TIER ) : ?>
 				<?php esc_html_e( 'Assigned to members of this level.', 'slnwp-role-extension-pmpro' ); ?><br>
 			<?php endif; ?>
-			<?php esc_html_e( 'Multiple levels can share the same role.', 'slnwp-role-extension-pmpro' ); ?>
+			<?php esc_html_e( 'Multiple levels can share the same role.', 'slnwp-role-extension-pmpro' ); ?><br>
+			<?php esc_html_e( 'Protected roles (listed on the Role Sync page) are not offered here, because this plugin never removes them from members.', 'slnwp-role-extension-pmpro' ); ?>
 		</p>
 	</div>
 	<?php
@@ -760,6 +808,12 @@ function pmpro_rm_add_role_slug_field() {
 
 /**
  * Echo a <select> of every registered WordPress role, "— None —" first.
+ *
+ * Protected roles are left out: this plugin never removes them, so a level
+ * using one would leave that role with ex-members after cancellation or
+ * expiry. A level that already has one saved still lists it (labelled), so
+ * re-saving the level doesn't silently clear it; see
+ * pmpro_rm_notice_protected_level_roles() for the warning.
  *
  * @param string $name      Field name.
  * @param string $current   Currently selected slug.
@@ -771,12 +825,22 @@ function pmpro_rm_add_role_slug_field() {
  *                          while hidden, with or without JS enabled.
  */
 function pmpro_rm_role_select( $name, $current, $all_roles, $disabled = false ) {
+	$protected = pmpro_rm_get_protected_roles();
 	?>
 	<select name="<?php echo esc_attr( $name ); ?>" <?php disabled( $disabled ); ?>>
 		<option value=""><?php esc_html_e( '— None —', 'slnwp-role-extension-pmpro' ); ?></option>
-		<?php foreach ( $all_roles as $slug => $data ) : ?>
+		<?php
+		foreach ( $all_roles as $slug => $data ) :
+			$is_protected = in_array( $slug, $protected, true );
+			if ( $is_protected && $slug !== $current ) {
+				continue;
+			}
+			?>
 			<option value="<?php echo esc_attr( $slug ); ?>" <?php selected( $current, $slug ); ?>>
 				<?php echo esc_html( translate_user_role( $data['name'] ) ); ?>
+				<?php if ( $is_protected ) : ?>
+					<?php esc_html_e( '(protected: never removed, choose another role)', 'slnwp-role-extension-pmpro' ); ?>
+				<?php endif; ?>
 			</option>
 		<?php endforeach; ?>
 	</select>
@@ -803,7 +867,7 @@ function pmpro_rm_save_role_slug_field( $saveid ) {
 	// phpcs:disable WordPress.Security.NonceVerification.Missing -- PMPro verifies its own nonce before firing pmpro_save_membership_level.
 	if ( isset( $_POST['pmpro_level_role_slug'] ) ) {
 		$slug = sanitize_key( wp_unslash( $_POST['pmpro_level_role_slug'] ) );
-		update_option( 'pmpro_level_role_' . $level_id, pmpro_rm_valid_role_or_empty( $slug ) );
+		update_option( 'pmpro_level_role_' . $level_id, pmpro_rm_level_role_to_save( $slug, 'pmpro_level_role_' . $level_id ) );
 	}
 
 	// phpcs:enable WordPress.Security.NonceVerification.Missing
@@ -824,6 +888,29 @@ function pmpro_rm_valid_role_or_empty( $slug ) {
 	return ( '' !== $slug && get_role( $slug ) ) ? $slug : '';
 }
 
+/**
+ * The value to store for a level's WordPress Role or Interim Role option.
+ *
+ * A protected role is refused unless it is already the saved value: the
+ * dropdown never offers one (see pmpro_rm_role_select()), so this only stops a
+ * crafted POST, while a level that already used one keeps it until an admin
+ * changes it on purpose (pmpro_rm_notice_protected_level_roles() flags it).
+ * A refused value leaves the saved one unchanged.
+ *
+ * @param string $slug   Submitted slug, already run through sanitize_key().
+ * @param string $option Option name holding the current value.
+ * @return string
+ */
+function pmpro_rm_level_role_to_save( $slug, $option ) {
+	$slug  = pmpro_rm_valid_role_or_empty( $slug );
+	$saved = (string) get_option( $option, '' );
+
+	if ( '' !== $slug && $slug !== $saved && in_array( $slug, pmpro_rm_get_protected_roles(), true ) ) {
+		return $saved;
+	}
+	return $slug;
+}
+
 
 // ============================================================================
 // ROLE HELPERS
@@ -832,20 +919,30 @@ function pmpro_rm_valid_role_or_empty( $slug ) {
 /**
  * Return roles that are never removed by this plugin.
  *
+ * A pmpro_protected_roles callback that returns something other than an array
+ * (e.g. one that forgets `return $roles;`) falls back to the built-in list:
+ * passing null on would make every role sync throw a TypeError on PHP 8 -
+ * membership changes, sync runs and member logins alike.
+ *
  * @return string[]
  */
 function pmpro_rm_get_protected_roles() {
-	return apply_filters(
-		'pmpro_protected_roles',
-		array(
-			'administrator',
-			'editor',
-			'author',
-			'contributor',
-			'customer',
-			'subscriber',
-		)
+	$defaults = array(
+		'administrator',
+		'editor',
+		'author',
+		'contributor',
+		'customer',
+		'subscriber',
 	);
+
+	$roles = apply_filters( 'pmpro_protected_roles', $defaults );
+	if ( ! is_array( $roles ) ) {
+		return $defaults;
+	}
+
+	$roles = array_map( 'sanitize_key', array_filter( $roles, 'is_string' ) );
+	return array_values( array_unique( array_filter( $roles ) ) );
 }
 
 /**
