@@ -3,7 +3,7 @@
  * Plugin Name:       SLNWP Role Extension for Paid Memberships Pro
  * Plugin URI:        https://github.com/soulsong-uk/slnwp-role-extension-pmpro
  * Description:       Manages WordPress roles in sync with Paid Memberships Pro membership levels. Replaces the official PMPro Roles add-on which had critical bugs around role assignment, removal, and administrator role protection.
- * Version:           2.1.8
+ * Version:           2.1.9
  * Author:            James Harvey
  * Author URI:        https://soulsong.co.uk
  * License:           GPL-2.0+
@@ -129,8 +129,34 @@ function pmpro_rm_activate() {
 function pmpro_rm_deactivate() {
 }
 
+/**
+ * Whether this plugin's admin notices should show on the current screen:
+ * only to admins, and only on the Plugins screen and PMPro's own admin pages
+ * (the Memberships menu, which includes Role Sync), plus the Dashboard when
+ * $on_dashboard is true. Keeps the warnings out of every other admin screen
+ * (WordPress.org Guideline 11).
+ *
+ * @param bool $on_dashboard Also show on the Dashboard.
+ * @return bool
+ */
+function pmpro_rm_notice_in_scope( $on_dashboard = false ) {
+	if ( ! current_user_can( 'manage_options' ) ) {
+		return false;
+	}
+	$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+	if ( $screen && ( 'plugins' === $screen->id || ( $on_dashboard && 'dashboard' === $screen->id ) ) ) {
+		return true;
+	}
+	// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only screen check, no state change.
+	$page = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : '';
+	return 0 === strpos( $page, 'pmpro-' );
+}
+
 /** Admin notice: PMPro not active. */
 function pmpro_rm_notice_missing_pmpro() {
+	if ( ! pmpro_rm_notice_in_scope( true ) ) {
+		return;
+	}
 	echo '<div class="notice notice-error"><p>';
 	echo '<strong>' . esc_html__( 'SLNWP Role Extension for Paid Memberships Pro', 'slnwp-role-extension-pmpro' ) . '</strong> ';
 	esc_html_e( 'requires Paid Memberships Pro to be installed and activated.', 'slnwp-role-extension-pmpro' );
@@ -139,6 +165,9 @@ function pmpro_rm_notice_missing_pmpro() {
 
 /** Admin notice: official PMPro Roles add-on also active. */
 function pmpro_rm_notice_conflict() {
+	if ( ! pmpro_rm_notice_in_scope() ) {
+		return;
+	}
 	echo '<div class="notice notice-warning"><p>';
 	echo '<strong>' . esc_html__( 'SLNWP Role Extension for Paid Memberships Pro', 'slnwp-role-extension-pmpro' ) . '</strong>: ';
 	esc_html_e( 'The official PMPro Roles add-on is currently active. Please deactivate it to avoid conflicts with this plugin.', 'slnwp-role-extension-pmpro' );
@@ -153,7 +182,7 @@ function pmpro_rm_notice_conflict() {
  * before that, or a role a site has since added via pmpro_protected_roles.
  */
 function pmpro_rm_notice_protected_level_roles() {
-	if ( ! current_user_can( 'manage_options' ) ) {
+	if ( ! pmpro_rm_notice_in_scope() ) {
 		return;
 	}
 	$names = pmpro_rm_get_protected_role_level_names();
@@ -604,6 +633,9 @@ function pmpro_rm_handle_sync() {
 			)
 		);
 	} elseif ( isset( $_GET['pmpro_rm_continue_direct'] ) ) {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You do not have permission to run the role sync.', 'slnwp-role-extension-pmpro' ) );
+		}
 		pmpro_rm_verify_sync_nonce( $nonce_ok );
 		pmpro_rm_run_direct_sync_batch(
 			isset( $_GET['pmpro_rm_offset'] ) ? absint( wp_unslash( $_GET['pmpro_rm_offset'] ) ) : 0,
@@ -795,6 +827,7 @@ function pmpro_rm_add_role_slug_field() {
 	<div class="pmpro-rm-section">
 		<p class="pmpro-rm-field-heading"><?php esc_html_e( 'WordPress Role', 'slnwp-role-extension-pmpro' ); ?></p>
 		<?php pmpro_rm_role_select( 'pmpro_level_role_slug', $role_slug, $all_roles ); ?>
+		<?php wp_nonce_field( 'pmpro_rm_save_level_roles', 'pmpro_rm_level_nonce', false ); ?>
 		<p class="description">
 			<?php if ( 'pro' !== PMPRO_RM_TIER ) : ?>
 				<?php esc_html_e( 'Assigned to members of this level.', 'slnwp-role-extension-pmpro' ); ?><br>
@@ -850,11 +883,12 @@ function pmpro_rm_role_select( $name, $current, $all_roles, $disabled = false ) 
 /**
  * Save Role Slug fields when a membership level is saved.
  *
- * Fires from pmpro_save_membership_level, which PMPro only triggers after it
- * has verified its own nonce and the edit_memberships capability — hence the
- * scoped nonce-verification ignore below. We still gate on the capability and
- * validate each submitted slug against the site's registered roles so a
- * crafted POST cannot store an arbitrary key.
+ * Fires from pmpro_save_membership_level. Checks this plugin's own nonce
+ * (rendered with the fields by pmpro_rm_add_role_slug_field()) and the
+ * capability before writing anything, and validates each submitted slug
+ * against the site's registered roles so a crafted POST cannot store an
+ * arbitrary key. A level saved without our fields on the form (no nonce) is
+ * left exactly as it was.
  *
  * @param int $saveid Level ID passed by pmpro_save_membership_level.
  */
@@ -863,14 +897,16 @@ function pmpro_rm_save_role_slug_field( $saveid ) {
 	if ( ! $level_id || ! current_user_can( 'manage_options' ) ) {
 		return;
 	}
+	if ( ! isset( $_POST['pmpro_rm_level_nonce'] )
+		|| false === wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['pmpro_rm_level_nonce'] ) ), 'pmpro_rm_save_level_roles' ) ) {
+		return;
+	}
 
-	// phpcs:disable WordPress.Security.NonceVerification.Missing -- PMPro verifies its own nonce before firing pmpro_save_membership_level.
 	if ( isset( $_POST['pmpro_level_role_slug'] ) ) {
 		$slug = sanitize_key( wp_unslash( $_POST['pmpro_level_role_slug'] ) );
 		update_option( 'pmpro_level_role_' . $level_id, pmpro_rm_level_role_to_save( $slug, 'pmpro_level_role_' . $level_id ) );
 	}
 
-	// phpcs:enable WordPress.Security.NonceVerification.Missing
 
 	// The set of configured role slugs just changed — drop the per-request cache.
 	pmpro_rm_get_configured_roles( true );

@@ -4,7 +4,7 @@ Tags:               paid memberships pro, pmpro, membership, roles, user roles
 Requires at least:  6.5
 Tested up to:       7.1
 Requires PHP:       7.4
-Stable tag:         2.1.8
+Stable tag:         2.1.9
 License:            GPLv2 or later
 License URI:        https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -137,10 +137,10 @@ Yes — the `customer` role is in the protected list by default so WooCommerce c
 
 == Changelog ==
 
-= 2.1.8 =
+= 2.1.9 =
 * First release on WordPress.org
 
 == Upgrade Notice ==
 
-= 2.1.8 =
+= 2.1.9 =
 First WordPress.org release.
