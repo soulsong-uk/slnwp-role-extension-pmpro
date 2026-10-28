@@ -3,7 +3,7 @@
  * Plugin Name:       SLNWP Role Extension for Paid Memberships Pro
  * Plugin URI:        https://github.com/soulsong-uk/slnwp-role-extension-pmpro
  * Description:       Manages WordPress roles in sync with Paid Memberships Pro membership levels. Replaces the official PMPro Roles add-on which had critical bugs around role assignment, removal, and administrator role protection.
- * Version:           2.1.9
+ * Version:           2.1.10
  * Author:            James Harvey
  * Author URI:        https://soulsong.co.uk
  * License:           GPL-2.0+
